@@ -18,6 +18,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { VideoPreviewDialog } from "@/components/dashboard/video-preview-dialog";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { scriptApi } from "@/lib/api/script";
@@ -963,46 +964,12 @@ export default function StoryboardTabPage() {
       />
       </motion.div>
 
-      {/* 合成视频预览弹窗 */}
-      {composedPreviewUrl && (
-        <div
-          onClick={() => setComposedPreviewUrl(null)}
-          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-4xl rounded-xl overflow-hidden bg-card border border-border/30 shadow-xl"
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border/20">
-              <h3 className="text-sm font-semibold flex items-center gap-2">
-                <PlayCircle className="h-4 w-4 text-emerald-500" />
-                本集合成视频
-              </h3>
-              <div className="flex items-center gap-2">
-                <a
-                  href={composedPreviewUrl}
-                  download
-                  className="text-xs px-3 py-1.5 rounded-lg border border-border/30 bg-muted/20 hover:bg-muted/40 transition-colors"
-                >
-                  下载
-                </a>
-                <button
-                  onClick={() => setComposedPreviewUrl(null)}
-                  className="text-xs px-3 py-1.5 rounded-lg border border-border/30 bg-muted/20 hover:bg-muted/40 transition-colors"
-                >
-                  关闭
-                </button>
-              </div>
-            </div>
-            <video
-              src={composedPreviewUrl}
-              controls
-              autoPlay
-              className="w-full max-h-[75vh] bg-black"
-            />
-          </div>
-        </div>
-      )}
+      <VideoPreviewDialog
+        open={!!composedPreviewUrl}
+        title="本集合成视频"
+        videoUrl={composedPreviewUrl}
+        onClose={() => setComposedPreviewUrl(null)}
+      />
     </motion.div>
   );
 }

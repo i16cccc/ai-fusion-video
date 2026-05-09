@@ -2,6 +2,7 @@
 
 import React, { memo, useState, useMemo } from "react";
 import { Film, Plus, Clock, Camera, Image as ImageIcon, GripHorizontal, Video, Play } from "lucide-react";
+import { VideoPreviewDialog } from "@/components/dashboard/video-preview-dialog";
 import { cn } from "@/lib/utils";
 import { resolveMediaUrl } from "@/lib/api/client";
 import type { StoryboardItem } from "@/lib/api/storyboard";
@@ -41,6 +42,7 @@ const CardItemUI = memo(
       isSelected: boolean;
       onSelect?: () => void;
       onVideoGen?: (itemId: number) => void;
+      onPreviewVideo?: (videoUrl: string) => void;
       attributes?: SortableBindings["attributes"];
       listeners?: SortableBindings["listeners"];
       style?: React.CSSProperties;
@@ -55,6 +57,7 @@ const CardItemUI = memo(
         isSelected,
         onSelect,
         onVideoGen,
+        onPreviewVideo,
         attributes,
         listeners,
         style,
@@ -73,6 +76,7 @@ const CardItemUI = memo(
         hasVideo ? "video" : "image"
       );
 
+      const rawVideoUrl = (item.generatedVideoUrl || item.videoUrl || "") as string;
       const videoSrc = resolveMediaUrl(item.generatedVideoUrl || item.videoUrl) || "";
       const imageSrc = (item.generatedImageUrl || item.imageUrl || item.referenceImageUrl) as string;
 
@@ -100,14 +104,29 @@ const CardItemUI = memo(
           <div className="aspect-video relative bg-muted/40 overflow-hidden shrink-0 border-b border-border/50">
             {/* 视频模式 */}
             {mediaMode === "video" && hasVideo ? (
-              <video
-                src={videoSrc}
-                className="w-full h-full object-cover"
-                controls
-                muted
-                preload="metadata"
-                onClick={(e) => e.stopPropagation()}
-              />
+              <>
+                <video
+                  src={videoSrc}
+                  className="w-full h-full object-cover"
+                  muted
+                  preload="metadata"
+                  playsInline
+                />
+                {onPreviewVideo && rawVideoUrl ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelect?.();
+                      onPreviewVideo(rawVideoUrl);
+                    }}
+                    className="absolute inset-0 flex items-center justify-center bg-black/20 transition-colors hover:bg-black/40"
+                    title="预览视频"
+                  >
+                    <Play className="h-8 w-8 text-white/90 fill-white/90" />
+                  </button>
+                ) : null}
+              </>
             ) : hasImage ? (
               /* 图片模式 */
               <img
@@ -260,12 +279,14 @@ function SortableCardItem({
   isSelected,
   onSelect,
   onVideoGen,
+  onPreviewVideo,
 }: {
   item: StoryboardItem;
   idx: number;
   isSelected: boolean;
   onSelect: () => void;
   onVideoGen?: (itemId: number) => void;
+  onPreviewVideo?: (videoUrl: string) => void;
 }) {
   const {
     attributes,
@@ -290,6 +311,7 @@ function SortableCardItem({
       isSelected={isSelected}
       onSelect={onSelect}
       onVideoGen={onVideoGen}
+      onPreviewVideo={onPreviewVideo}
       attributes={attributes}
       listeners={listeners}
       isDragging={isDragging}
@@ -313,6 +335,7 @@ export function StoryboardCardView({
   onVideoGen?: (itemId: number) => void;
 }) {
   const [activeId, setActiveId] = useState<number | null>(null);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -391,6 +414,7 @@ export function StoryboardCardView({
                 isSelected={selectedItemId === item.id}
                 onSelect={() => onSelectItem(item.id)}
                 onVideoGen={onVideoGen}
+                onPreviewVideo={setPreviewVideoUrl}
               />
             ))}
 
@@ -433,6 +457,13 @@ export function StoryboardCardView({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      <VideoPreviewDialog
+        open={!!previewVideoUrl}
+        title="镜头视频预览"
+        videoUrl={previewVideoUrl}
+        onClose={() => setPreviewVideoUrl(null)}
+      />
     </div>
   );
 }

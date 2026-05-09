@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Film, GripVertical, Plus, Trash2, ImageIcon, Video, Play } from "lucide-react";
+import { VideoPreviewDialog } from "@/components/dashboard/video-preview-dialog";
 import { cn } from "@/lib/utils";
 import { resolveMediaUrl } from "@/lib/api/client";
 import type { StoryboardItem } from "@/lib/api/storyboard";
@@ -77,6 +78,7 @@ export function StoryboardTableView({
   const [colWidths, setColWidths] = useState<number[]>(
     COLUMNS.map((c) => c.initW)
   );
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
 
   // ========== 行拖拽排序 ==========
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -328,10 +330,23 @@ export function StoryboardTableView({
                               className="w-full h-full object-cover"
                               muted
                               preload="metadata"
+                              playsInline
                             />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/video:bg-black/40 transition-colors">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectItem(item.id);
+                                const rawVideoUrl = item.generatedVideoUrl || item.videoUrl;
+                                if (rawVideoUrl) {
+                                  setPreviewVideoUrl(rawVideoUrl);
+                                }
+                              }}
+                              className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover/video:bg-black/40 transition-colors"
+                              title="预览视频"
+                            >
                               <Play className="h-3.5 w-3.5 text-white/90 fill-white/90" />
-                            </div>
+                            </button>
                           </>
                         ) : (
                           <Video className="h-3.5 w-3.5 text-muted-foreground/30" />
@@ -414,6 +429,13 @@ export function StoryboardTableView({
         <Plus className="h-3.5 w-3.5" />
         添加镜头
       </button>
+
+      <VideoPreviewDialog
+        open={!!previewVideoUrl}
+        title="镜头视频预览"
+        videoUrl={previewVideoUrl}
+        onClose={() => setPreviewVideoUrl(null)}
+      />
     </div>
   );
 }
