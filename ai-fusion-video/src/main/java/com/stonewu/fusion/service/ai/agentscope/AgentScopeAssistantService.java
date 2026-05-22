@@ -27,7 +27,6 @@ import io.agentscope.core.model.Model;
 import io.agentscope.core.session.mysql.MysqlSession;
 import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.ToolkitConfig;
-import io.agentscope.core.tool.subagent.SubAgentConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -761,59 +760,53 @@ public class AgentScopeAssistantService {
                 systemPrompt = systemPrompt + "\n\n" + instruction;
             }
 
-            // 子 Agent 的内部工具
-            Toolkit subToolkit = null;
+            // 子 Agent 的内部工具定义。每次子 Agent 调用都会创建独立 Toolkit，避免并行实例共享可变回调状态。
+            List<ToolExecutor> subTools = List.of();
             if (subAgentDef != null && Integer.valueOf(1).equals(subAgentDef.getEnableTools())) {
-                List<ToolExecutor> subTools = aiToolConfigService.getEnabledToolsByAgent(subAgentType);
-                if (!subTools.isEmpty()) {
-                    subToolkit = new Toolkit(ToolkitConfig.builder()
-                            .parallel(true)
-                            .executionConfig(ExecutionConfig.builder()
-                                    .timeout(Duration.ofMinutes(20))
-                                    .build())
-                            .build());
-                    for (ToolExecutor subTool : subTools) {
-                        subToolkit.registerAgentTool(new AgentScopeToolAdapter(subTool, toolExecContext, cancellationToken));
-                    }
-                }
+                subTools = aiToolConfigService.getEnabledToolsByAgent(subAgentType);
             }
 
             final String finalSysPrompt = systemPrompt;
-            final Toolkit finalSubToolkit = subToolkit;
+            final List<ToolExecutor> finalSubTools = subTools;
 
             String toolName = subAgentToolDef.getToolName();
-
-            SubAgentConfig config = SubAgentConfig.builder()
-                    .toolName(toolName)
-                    .description(subAgentToolDef.getDescription())
-                    .forwardEvents(true) // 关键：转发子 Agent 事件到父 Hook 链
-                    .build();
 
             // 注册子 Agent 工具名到 Hook，以便自动建立 parentToolCallId 映射
             streamingHook.registerSubAgentToolName(toolName);
 
-            toolkit.registration()
-                    .subAgent(() -> {
+            toolkit.registerAgentTool(new AgentScopeSubAgentToolAdapter(
+                    toolName,
+                    subAgentToolDef.getDescription(),
+                    () -> {
                         ReActAgent.Builder subBuilder = ReActAgent.builder()
-                                .name(subAgentToolDef.getToolName())
+                                .name(toolName)
                                 .sysPrompt(finalSysPrompt)
                                 .model(model) // 复用父 Agent 模型
                                 .maxIters(999)
                                 .hooks(List.of(streamingHook)); // 共享 Hook 实例
 
-                        if (finalSubToolkit != null) {
-                            subBuilder.toolkit(finalSubToolkit);
+                        if (!finalSubTools.isEmpty()) {
+                            Toolkit subToolkit = new Toolkit(ToolkitConfig.builder()
+                                    .parallel(true)
+                                    .executionConfig(ExecutionConfig.builder()
+                                            .timeout(Duration.ofMinutes(20))
+                                            .build())
+                                    .build());
+                            for (ToolExecutor subTool : finalSubTools) {
+                                subToolkit.registerAgentTool(
+                                        new AgentScopeToolAdapter(subTool, toolExecContext, cancellationToken));
+                            }
+                            subBuilder.toolkit(subToolkit);
                         }
 
-                        ReActAgent subAgent = subBuilder.build();
-                        streamingHook.registerActiveAgent(subAgent);
-                        return subAgent;
-                    }, config)
-                    .apply();
+                        return subBuilder.build();
+                    },
+                    streamingHook,
+                    cancellationToken));
 
             log.info("子 Agent 注册完成: name={}, toolName={}, hasSubTools={}",
-                    subAgentToolDef.getToolName(), config.getToolName(),
-                    subToolkit != null);
+                    subAgentToolDef.getToolName(), toolName,
+                    !subTools.isEmpty());
 
         } catch (Exception e) {
             log.error("注册子 Agent 工具失败: name={}", subAgentToolDef.getToolName(), e);

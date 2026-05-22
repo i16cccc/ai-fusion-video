@@ -149,13 +149,16 @@ public class StreamingEventHook implements Hook {
 
         Msg incrementalChunk = event.getIncrementalChunk();
         if (incrementalChunk == null) {
-            // log.debug("[StreamingEventHook] 收到event: {}, agent={}, parentCallId={}, chunk=null",
-            //         event.getClass().getSimpleName(), agentName, parentCallId);
+            // log.debug("[StreamingEventHook] 收到event: {}, agent={}, parentCallId={},
+            // chunk=null",
+            // event.getClass().getSimpleName(), agentName, parentCallId);
             return;
         }
 
-        // log.debug("[StreamingEventHook] 收到event: {}, agent={}, parentCallId={}, textContent={}",
-        //          event.getClass().getSimpleName(), agentName, parentCallId, incrementalChunk.getTextContent());
+        // log.debug("[StreamingEventHook] 收到event: {}, agent={}, parentCallId={},
+        // textContent={}",
+        // event.getClass().getSimpleName(), agentName, parentCallId,
+        // incrementalChunk.getTextContent());
 
         for (ContentBlock block : incrementalChunk.getContent()) {
             if (block instanceof ThinkingBlock thinkingBlock) {
@@ -320,7 +323,11 @@ public class StreamingEventHook implements Hook {
         String agentName = event.getAgent().getName();
         String parentCallId = resolveParentCallId(event);
         boolean subAgent = isSubAgent(agentName);
-        activeAgents.remove(getAgentKey(event));
+        String agentKey = getAgentKey(event);
+        activeAgents.remove(agentKey);
+        if (subAgent) {
+            activeSubAgentCalls.remove(agentKey);
+        }
         String errorMsg = event.getError() != null ? event.getError().getMessage() : "未知错误";
         log.error("[StreamingEventHook] Agent 错误: agent={}, error={}", agentName, errorMsg);
 
@@ -329,9 +336,9 @@ public class StreamingEventHook implements Hook {
                 .setConversationId(conversationId)
                 .setOutputType("ERROR")
                 .setError(agentName + " 执行出错: " + errorMsg)
-            .setParentToolCallId(parentCallId)
-            .setAgentName(subAgent ? agentName : null)
-            .setFinished(!subAgent));
+                .setParentToolCallId(parentCallId)
+                .setAgentName(subAgent ? agentName : null)
+                .setFinished(!subAgent));
     }
 
     // ========== 子 Agent 映射 ==========
@@ -345,6 +352,27 @@ public class StreamingEventHook implements Hook {
     public void registerSubAgentToolName(String toolName) {
         subAgentToolNames.add(toolName);
         log.debug("[StreamingEventHook] 注册子Agent工具名: {}", toolName);
+    }
+
+    /**
+     * 显式绑定子 Agent 实例和父工具调用 ID。
+     * <p>
+     * 同名子 Agent 并行执行时，事件到达顺序不等于父工具调用顺序，不能依赖 FIFO 队列推断归属。
+     * 在创建子 Agent 后立即绑定实例 key，可让 resolveParentCallId 精确命中。
+     */
+    public void bindSubAgentCall(Agent agent, String parentToolCallId) {
+        if (agent == null || parentToolCallId == null || parentToolCallId.isBlank()) {
+            return;
+        }
+        String agentKey = getAgentKey(agent);
+        activeSubAgentCalls.put(agentKey, parentToolCallId);
+        ConcurrentLinkedQueue<String> queue = pendingSubAgentCalls.get(agent.getName());
+        if (queue != null) {
+            queue.remove(parentToolCallId);
+        }
+        registerActiveAgent(agent);
+        log.debug("[StreamingEventHook] 子Agent显式映射建立: agentKey={} -> parentCallId={}",
+                agentKey, parentToolCallId);
     }
 
     /**
@@ -414,9 +442,15 @@ public class StreamingEventHook implements Hook {
 
         String agentKey = getAgentKey(event);
 
+        log.debug("[StreamingEventHook] resolveParentCallId 开始: eventType={}, agentName={}, agentKey={}, " +
+                "activeSubAgentCalls={}, pendingSubAgentCalls.keys={}",
+                event.getClass().getSimpleName(), agentName, agentKey,
+                activeSubAgentCalls, pendingSubAgentCalls.keySet());
+
         // 1. 已有映射：直接返回
         String existing = activeSubAgentCalls.get(agentKey);
         if (existing != null) {
+            log.debug("[StreamingEventHook] 已有映射命中: agentKey={} -> parentCallId={}", agentKey, existing);
             return existing;
         }
 
@@ -430,10 +464,16 @@ public class StreamingEventHook implements Hook {
                         agentKey, toolCallId);
                 return toolCallId;
             }
+            log.warn("[StreamingEventHook] 待分配队列存在但为空: agentName={}", agentName);
+        } else {
+            log.warn("[StreamingEventHook] 待分配队列不存在: agentName={}, 已注册的工具名={}",
+                    agentName, subAgentToolNames);
         }
 
-        log.warn("[StreamingEventHook] 子Agent未找到parentCallId: agentName={}, agentKey={}",
-                agentName, agentKey);
+        log.warn("[StreamingEventHook] 子Agent未找到parentCallId: agentName={}, agentKey={}, " +
+                "pendingKeys={}, activeKeys={}",
+                agentName, agentKey,
+                pendingSubAgentCalls.keySet(), activeSubAgentCalls.keySet());
         return null;
     }
 
@@ -442,7 +482,9 @@ public class StreamingEventHook implements Hook {
         if (result.isFailure()) {
             log.warn("[StreamingEventHook] 事件发送失败: result={}, type={}, agentName={}, content={}, currentThread={}",
                     result, event.getOutputType(), event.getAgentName(),
-                    event.getContent() != null ? event.getContent().substring(0, Math.min(event.getContent().length(), 100)) : null,
+                    event.getContent() != null
+                            ? event.getContent().substring(0, Math.min(event.getContent().length(), 100))
+                            : null,
                     Thread.currentThread().getName());
         }
     }
@@ -450,8 +492,9 @@ public class StreamingEventHook implements Hook {
     private void emitReasoningEvent(String agentName, String agentKey, String parentCallId,
             String reasoningText, String sourceType) {
         reasoningStartTimes.putIfAbsent(agentKey, System.currentTimeMillis());
-        // log.debug("[StreamingEventHook] 思考增量: agent={}, parentCallId={}, sourceType={}, content={}",
-        //         agentName, parentCallId, sourceType, reasoningText);
+        // log.debug("[StreamingEventHook] 思考增量: agent={}, parentCallId={},
+        // sourceType={}, content={}",
+        // agentName, parentCallId, sourceType, reasoningText);
 
         emitEvent(new AiChatStreamRespVO()
                 .setMessageId(messageId)
