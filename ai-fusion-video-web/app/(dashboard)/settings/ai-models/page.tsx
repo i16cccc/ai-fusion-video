@@ -504,6 +504,13 @@ function getSuggestedModelFamilies(platform: string | null | undefined, modelTyp
   const common = [{ value: "", label: "自动推断" }, { value: "generic", label: "通用" }];
 
   if (modelType === 3) {
+    if (normalized === "openai_compatible") {
+      return [
+        ...common,
+        { value: "agnes", label: "Agnes" },
+        { value: "sora", label: "Sora" },
+      ];
+    }
     if (normalized === "newapi") {
       return [
         ...common,
@@ -554,13 +561,18 @@ function getSuggestedVideoProtocol(platform: string | null | undefined, modelFam
       return "wan";
     case "volcengine":
       return "seedance";
+    case "openai_compatible":
+      if (normalizedFamily === "agnes" || normalizedFamily === "sora") {
+        return normalizedFamily;
+      }
+      return "generic";
     case "newapi":
       if (normalizedFamily === "jimeng" || normalizedFamily === "kling" || normalizedFamily === "sora") {
         return normalizedFamily;
       }
       return "generic";
     default:
-      if (normalizedFamily === "jimeng" || normalizedFamily === "kling" || normalizedFamily === "sora") {
+      if (normalizedFamily === "agnes" || normalizedFamily === "jimeng" || normalizedFamily === "kling" || normalizedFamily === "sora") {
         return normalizedFamily;
       }
       if (normalizedFamily === "wan_video" || normalizedFamily === "wan") {
@@ -610,6 +622,7 @@ const MODEL_FAMILY_LABELS: Record<string, string> = {
   gemini: "Gemini",
   deepseek: "DeepSeek",
   qwen: "Qwen",
+  agnes: "Agnes",
   wan: "Wan",
   wan_video: "Wan 视频",
   jimeng: "即梦",
@@ -626,6 +639,7 @@ const MODEL_PROTOCOL_LABELS: Record<string, string> = {
   wan: "Wan 协议",
   seedance: "Seedance 协议",
   google_flow: "Flow 协议",
+  agnes: "Agnes 协议",
   jimeng: "即梦协议",
   kling: "可灵协议",
   sora: "Sora 协议",
@@ -634,6 +648,7 @@ const MODEL_PROTOCOL_LABELS: Record<string, string> = {
 const VIDEO_PROTOCOL_OPTIONS = [
   { value: "", label: "自动推断 / 通用" },
   { value: "generic", label: "通用视频协议" },
+  { value: "agnes", label: "Agnes 协议" },
   { value: "jimeng", label: "即梦协议" },
   { value: "kling", label: "可灵协议" },
   { value: "sora", label: "Sora 协议" },
@@ -2023,7 +2038,7 @@ function FetchRemoteModelsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3 min-h-0 overflow-y-auto px-1 -mx-1">
+        <div className="flex flex-col gap-3 min-h-0 overflow-y-auto px-1 pt-1 -mx-1">
           {/* 搜索框 + 模型类型选择 */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="relative flex-1">

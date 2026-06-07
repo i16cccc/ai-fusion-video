@@ -241,16 +241,18 @@ function SubAgentCard({
             {toolProgressLabel}
           </span>
         )}
-        {isRunning && (
-          <span className="text-xs text-purple-400/80 ml-auto">运行中…</span>
-        )}
-        <span className="ml-auto shrink-0">
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {isRunning && (
+            <span className="text-xs text-purple-400/80 text-right">运行中…</span>
           )}
-        </span>
+          <span>
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/50" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+            )}
+          </span>
+        </div>
       </div>
 
       <AnimatePresence initial={false}>

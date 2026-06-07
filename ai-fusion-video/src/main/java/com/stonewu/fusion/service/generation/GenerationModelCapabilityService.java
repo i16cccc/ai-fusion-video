@@ -430,6 +430,12 @@ public class GenerationModelCapabilityService {
                     0, 1, 1, 0, 0);
         }
 
+        if ("openai_compatible".equals(normalizedPlatform)
+            && ("agnes".equals(metadata.effectiveProtocol()) || "agnes".equals(metadata.effectiveFamily()))) {
+            return new VideoModelCapability(true, true, true, false, false,
+                0, null, null, 0, 0);
+        }
+
         return new VideoModelCapability(false, false, false, false, false,
                 0, 0, 0, 0, 0);
     }

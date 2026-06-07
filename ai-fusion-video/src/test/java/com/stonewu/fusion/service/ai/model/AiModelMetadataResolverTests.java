@@ -38,4 +38,19 @@ class AiModelMetadataResolverTests {
         assertEquals("generic", metadata.modelFamily());
         assertEquals("generic", metadata.modelProtocol());
     }
+
+    @Test
+    void shouldInferAgnesProtocolForOpenAiCompatibleVideoModel() {
+        AiModelMetadataResolver resolver = new AiModelMetadataResolver(mock(ApiConfigService.class));
+        AiModel model = AiModel.builder()
+                .name("Agnes Video")
+                .code("agnes-video-v2.0")
+                .modelType(3)
+                .build();
+
+        AiModelMetadata metadata = resolver.resolve(model, "openai_compatible");
+
+        assertEquals("agnes", metadata.modelFamily());
+        assertEquals("agnes", metadata.modelProtocol());
+    }
 }

@@ -1,10 +1,15 @@
 package com.stonewu.fusion.controller.storage;
 
+import cn.hutool.core.util.StrUtil;
 import com.stonewu.fusion.common.CommonResult;
 import com.stonewu.fusion.controller.storage.vo.StorageConfigRespVO;
 import com.stonewu.fusion.controller.storage.vo.StorageConfigSaveReqVO;
+import com.stonewu.fusion.controller.storage.vo.StorageConfigTestRespVO;
 import com.stonewu.fusion.convert.storage.StorageConfigConvert;
 import com.stonewu.fusion.entity.storage.StorageConfig;
+import com.stonewu.fusion.service.storage.StorageConfigOptions;
+import com.stonewu.fusion.service.storage.StorageConnectionTestResult;
+import com.stonewu.fusion.service.storage.StorageConnectionTestService;
 import com.stonewu.fusion.service.storage.StorageConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -28,25 +33,13 @@ import static com.stonewu.fusion.common.CommonResult.success;
 public class StorageConfigController {
 
     private final StorageConfigService storageConfigService;
+    private final StorageConnectionTestService storageConnectionTestService;
 
     @PostMapping("/create")
     @Operation(summary = "创建存储配置")
     @PreAuthorize("hasRole('ADMIN')")
     public CommonResult<Long> create(@Valid @RequestBody StorageConfigSaveReqVO reqVO) {
-        StorageConfig config = StorageConfig.builder()
-                .name(reqVO.getName())
-                .type(reqVO.getType())
-                .endpoint(reqVO.getEndpoint())
-                .bucketName(reqVO.getBucketName())
-                .accessKey(reqVO.getAccessKey())
-                .secretKey(reqVO.getSecretKey())
-                .region(reqVO.getRegion())
-                .basePath(reqVO.getBasePath())
-                .customDomain(reqVO.getCustomDomain())
-                .isDefault(reqVO.getIsDefault() != null ? reqVO.getIsDefault() : false)
-                .status(reqVO.getStatus() != null ? reqVO.getStatus() : 1)
-                .remark(reqVO.getRemark())
-                .build();
+        StorageConfig config = buildConfig(reqVO, null);
         return success(storageConfigService.create(config));
     }
 
@@ -54,19 +47,7 @@ public class StorageConfigController {
     @Operation(summary = "更新存储配置")
     @PreAuthorize("hasRole('ADMIN')")
     public CommonResult<Boolean> update(@Valid @RequestBody StorageConfigSaveReqVO reqVO) {
-        StorageConfig config = storageConfigService.getById(reqVO.getId());
-        if (reqVO.getName() != null) config.setName(reqVO.getName());
-        if (reqVO.getType() != null) config.setType(reqVO.getType());
-        if (reqVO.getEndpoint() != null) config.setEndpoint(reqVO.getEndpoint());
-        if (reqVO.getBucketName() != null) config.setBucketName(reqVO.getBucketName());
-        if (reqVO.getAccessKey() != null) config.setAccessKey(reqVO.getAccessKey());
-        if (reqVO.getSecretKey() != null) config.setSecretKey(reqVO.getSecretKey());
-        if (reqVO.getRegion() != null) config.setRegion(reqVO.getRegion());
-        if (reqVO.getBasePath() != null) config.setBasePath(reqVO.getBasePath());
-        if (reqVO.getCustomDomain() != null) config.setCustomDomain(reqVO.getCustomDomain());
-        if (reqVO.getIsDefault() != null) config.setIsDefault(reqVO.getIsDefault());
-        if (reqVO.getStatus() != null) config.setStatus(reqVO.getStatus());
-        if (reqVO.getRemark() != null) config.setRemark(reqVO.getRemark());
+        StorageConfig config = buildConfig(reqVO, storageConfigService.getById(reqVO.getId()));
         storageConfigService.update(config);
         return success(true);
     }
@@ -99,5 +80,59 @@ public class StorageConfigController {
     public CommonResult<Boolean> setDefault(@RequestParam("id") Long id) {
         storageConfigService.setDefault(id);
         return success(true);
+    }
+
+    @PostMapping("/test")
+    @Operation(summary = "测试存储配置")
+    @PreAuthorize("hasRole('ADMIN')")
+    public CommonResult<StorageConfigTestRespVO> test(@Valid @RequestBody StorageConfigSaveReqVO reqVO) {
+        StorageConfig existing = reqVO.getId() != null ? storageConfigService.getById(reqVO.getId()) : null;
+        StorageConfig config = buildConfig(reqVO, existing);
+        StorageConnectionTestResult result = storageConnectionTestService.test(config);
+        return success(new StorageConfigTestRespVO(result.success(), result.message(), result.publicUrl()));
+    }
+
+    private StorageConfig buildConfig(StorageConfigSaveReqVO reqVO, StorageConfig existing) {
+        StorageConfig.StorageConfigBuilder builder = StorageConfig.builder()
+                .id(existing != null ? existing.getId() : reqVO.getId())
+                .name(valueOrExisting(reqVO.getName(), existing != null ? existing.getName() : null))
+                .type(valueOrExisting(reqVO.getType(), existing != null ? existing.getType() : null))
+                .provider(valueOrExisting(reqVO.getProvider(), existing != null ? existing.getProvider() : null))
+                .endpoint(valueOrExisting(reqVO.getEndpoint(), existing != null ? existing.getEndpoint() : null))
+                .bucketName(valueOrExisting(reqVO.getBucketName(), existing != null ? existing.getBucketName() : null))
+                .region(valueOrExisting(reqVO.getRegion(), existing != null ? existing.getRegion() : null))
+                .basePath(valueOrExisting(reqVO.getBasePath(), existing != null ? existing.getBasePath() : null))
+                .customDomain(valueOrExisting(reqVO.getCustomDomain(), existing != null ? existing.getCustomDomain() : null))
+                .isDefault(reqVO.getIsDefault() != null ? reqVO.getIsDefault()
+                        : existing != null ? existing.getIsDefault() : false)
+                .status(reqVO.getStatus() != null ? reqVO.getStatus()
+                        : existing != null ? existing.getStatus() : 1)
+                .remark(valueOrExisting(reqVO.getRemark(), existing != null ? existing.getRemark() : null))
+                .options(reqVO.getOptions() != null
+                        ? StorageConfigOptions.toJson(reqVO.getOptions())
+                        : existing != null ? existing.getOptions() : null);
+
+        String accessKey = reqVO.getAccessKey();
+        if (existing != null && (StrUtil.isBlank(accessKey) || isMaskedCredential(accessKey))) {
+            accessKey = existing.getAccessKey();
+        }
+
+        String secretKey = reqVO.getSecretKey();
+        if (existing != null && StrUtil.isBlank(secretKey)) {
+            secretKey = existing.getSecretKey();
+        }
+
+        return builder
+                .accessKey(accessKey)
+                .secretKey(secretKey)
+                .build();
+    }
+
+    private String valueOrExisting(String value, String existing) {
+        return value != null ? value : existing;
+    }
+
+    private boolean isMaskedCredential(String value) {
+        return value != null && value.contains("****");
     }
 }

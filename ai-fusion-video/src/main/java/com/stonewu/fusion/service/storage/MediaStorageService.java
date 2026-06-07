@@ -97,11 +97,12 @@ public class MediaStorageService {
         Map<String, StorageStrategy> map = getStrategyMap();
 
         if (config != null && StrUtil.isNotBlank(config.getType())) {
-            StorageStrategy strategy = map.get(config.getType());
+            String type = StorageTypes.normalizeType(config.getType());
+            StorageStrategy strategy = map.get(type);
             if (strategy != null) {
                 return strategy;
             }
-            log.warn("[MediaStorage] 未找到类型 {} 对应的策略，回退到 local", config.getType());
+            log.warn("[MediaStorage] 未找到类型 {} 对应的策略，回退到 local", type);
         }
 
         // 回退到本地存储

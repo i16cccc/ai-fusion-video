@@ -101,6 +101,7 @@ export function ToolResultDisplay({
     case "save_storyboard_episode":
     case "save_storyboard_scene_shots":
     case "get_storyboard":
+    case "get_storyboard_scene_items":
     case "list_project_storyboards":
       return <StoryboardResult data={parsed} toolName={toolName} />;
     case "get_script":

@@ -10,11 +10,20 @@ import {
   EyeOff,
   Star,
   HardDrive,
+  Cloud,
+  TestTube2,
+  Settings2,
+  ChevronDown,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
+  getStorageProviderOption,
+  renderEndpointTemplate,
   storageConfigApi,
+  STORAGE_PROVIDER_LABELS,
+  STORAGE_PROVIDER_OPTIONS,
   STORAGE_TYPE_OPTIONS,
   STORAGE_TYPE_LABELS,
   type StorageConfig as StorageConfigType,
@@ -40,31 +49,56 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { containerVariants, itemVariants } from "../_shared";
 
 // ============================================================
 // 存储配置 Dialog
 // ============================================================
 
-function getStorageTypeFields(type: string) {
-  switch (type) {
-    case "local":
-      return [
-        { key: "basePath", label: "存储路径", placeholder: "./data/media", type: "text" as const, required: true },
-      ];
-    case "s3":
-      return [
-        { key: "endpoint", label: "Endpoint", placeholder: "https://oss-cn-hangzhou.aliyuncs.com", type: "text" as const, required: true },
-        { key: "bucketName", label: "Bucket 名称", placeholder: "my-bucket", type: "text" as const, required: true },
-        { key: "accessKey", label: "Access Key", placeholder: "LTAI...", type: "password" as const, required: true },
-        { key: "secretKey", label: "Secret Key", placeholder: "...", type: "password" as const, required: true },
-        { key: "region", label: "Region", placeholder: "cn-hangzhou / us-east-1", type: "text" as const },
-        { key: "basePath", label: "Key 前缀", placeholder: "ai-fusion/（可选）", type: "text" as const },
-        { key: "customDomain", label: "自定义域名", placeholder: "https://cdn.example.com（可选）", type: "text" as const },
-      ];
-    default:
-      return [];
-  }
+function getProviderOption(provider?: string) {
+  return getStorageProviderOption(provider || "generic_s3");
+}
+
+function getProviderDefaultOptions(provider?: string) {
+  const option = getProviderOption(provider);
+  return {
+    pathStyleAccessEnabled: option.pathStyleAccessEnabled,
+    chunkedEncodingEnabled: option.chunkedEncodingEnabled,
+    checksumCalculation: "WHEN_REQUIRED" as const,
+  };
+}
+
+function buildEndpoint(provider?: string, region?: string) {
+  return renderEndpointTemplate(provider || "generic_s3", region);
+}
+
+function hasEndpointTemplate(provider?: string) {
+  return !!getProviderOption(provider).endpointTemplate;
+}
+
+function isTemplateEndpoint(provider?: string, region?: string, endpoint?: string) {
+  const generated = buildEndpoint(provider, region);
+  return !!generated && generated === endpoint;
+}
+
+function endpointPlaceholder(provider?: string) {
+  const option = getProviderOption(provider);
+  return option.endpointTemplate || "https://s3.example.com";
+}
+
+function normalizeStorageType(config: Pick<StorageConfigType, "type" | "provider" | "endpoint" | "bucketName">) {
+  if (config.type === "local") return "local";
+  if (config.type === "s3" || config.type === "aliyun_oss" || config.type === "tencent_cos") return "s3";
+  if (config.provider || config.endpoint || config.bucketName) return "s3";
+  return "local";
+}
+
+function normalizeStorageProvider(config: Pick<StorageConfigType, "type" | "provider">) {
+  if (config.provider) return config.provider;
+  if (config.type === "aliyun_oss") return "aliyun_oss";
+  if (config.type === "tencent_cos") return "tencent_cos";
+  return "generic_s3";
 }
 
 interface StorageConfigDialogProps {
@@ -76,36 +110,132 @@ interface StorageConfigDialogProps {
 
 function StorageConfigDialog({ open, onOpenChange, editingConfig, onSaved }: StorageConfigDialogProps) {
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [form, setForm] = useState<StorageConfigSaveReq>({ name: "", type: "local" });
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+  const [endpointManual, setEndpointManual] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (open) {
       if (editingConfig) {
+        const type = normalizeStorageType(editingConfig);
+        const provider = type === "s3" ? normalizeStorageProvider(editingConfig) : undefined;
+        const generatedEndpoint = buildEndpoint(provider, editingConfig.region || "");
+        const isManualEndpoint = type === "s3"
+          && !!editingConfig.endpoint
+          && (!generatedEndpoint || editingConfig.endpoint !== generatedEndpoint);
         setForm({
           id: editingConfig.id,
           name: editingConfig.name,
-          type: editingConfig.type,
+          type,
+          provider,
           endpoint: editingConfig.endpoint || "",
           bucketName: editingConfig.bucketName || "",
           accessKey: editingConfig.accessKey || "",
-          secretKey: editingConfig.secretKey || "",
+          secretKey: "",
           region: editingConfig.region || "",
           basePath: editingConfig.basePath || "",
           customDomain: editingConfig.customDomain || "",
+          options: provider
+            ? { ...getProviderDefaultOptions(provider), ...(editingConfig.options || {}) }
+            : editingConfig.options,
           isDefault: editingConfig.isDefault,
           status: editingConfig.status,
           remark: editingConfig.remark || "",
         });
+        setEndpointManual(isManualEndpoint);
       } else {
         setForm({ name: "", type: "local", basePath: "./data/media", status: 1 });
+        setEndpointManual(false);
       }
       setShowSecrets({});
+      setShowAdvanced(false);
     }
   }, [open, editingConfig]);
 
   const updateField = <K extends keyof StorageConfigSaveReq>(key: K, value: StorageConfigSaveReq[K]) => {
     setForm(prev => ({ ...prev, [key]: value }));
+  };
+
+  const updateType = (type: string) => {
+    setEndpointManual(false);
+    setForm(prev => {
+      if (type === "s3") {
+        const provider = prev.provider || "aliyun_oss";
+        const providerOption = getProviderOption(provider);
+        const region = prev.region || providerOption.defaultRegion || "";
+        const generatedEndpoint = buildEndpoint(provider, region);
+        return {
+          ...prev,
+          type,
+          provider,
+          region,
+          endpoint: generatedEndpoint,
+          options: { ...getProviderDefaultOptions(provider), ...(prev.options || {}) },
+          basePath: "",
+        };
+      }
+      return {
+        ...prev,
+        type,
+        provider: undefined,
+        endpoint: "",
+        bucketName: "",
+        accessKey: "",
+        secretKey: "",
+        region: "",
+        customDomain: "",
+        options: undefined,
+        basePath: prev.basePath || "./data/media",
+      };
+    });
+  };
+
+  const updateProvider = (provider: string) => {
+    const providerOption = getProviderOption(provider);
+    setEndpointManual(!providerOption.endpointTemplate);
+    setForm(prev => {
+      const region = prev.region || providerOption.defaultRegion || "";
+      const generatedEndpoint = buildEndpoint(provider, region);
+      return {
+        ...prev,
+        provider,
+        region,
+        endpoint: generatedEndpoint || "",
+        options: getProviderDefaultOptions(provider),
+      };
+    });
+  };
+
+  const updateRegion = (region: string) => {
+    setForm(prev => {
+      const generatedEndpoint = buildEndpoint(prev.provider, region);
+      const shouldAutoUpdate = !endpointManual && hasEndpointTemplate(prev.provider);
+      const endpoint = shouldAutoUpdate ? generatedEndpoint : prev.endpoint;
+      return { ...prev, region, endpoint };
+    });
+  };
+
+  const setManualEndpoint = (manual: boolean) => {
+    setEndpointManual(manual);
+    if (!manual) {
+      setForm(prev => ({ ...prev, endpoint: buildEndpoint(prev.provider, prev.region) }));
+    }
+  };
+
+  const updateOptionField = <K extends keyof NonNullable<StorageConfigSaveReq["options"]>>(
+    key: K,
+    value: NonNullable<StorageConfigSaveReq["options"]>[K]
+  ) => {
+    setForm(prev => ({
+      ...prev,
+      options: {
+        ...getProviderDefaultOptions(prev.provider),
+        ...(prev.options || {}),
+        [key]: value,
+      },
+    }));
   };
 
   const handleSave = async () => {
@@ -126,11 +256,41 @@ function StorageConfigDialog({ open, onOpenChange, editingConfig, onSaved }: Sto
     }
   };
 
-  const fields = getStorageTypeFields(form.type || "local");
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const result = await storageConfigApi.test(form);
+      if (result.success) {
+        toast.success(result.message || "存储连接正常", {
+          description: result.publicUrl,
+        });
+      } else {
+        toast.error(result.message || "存储连接测试失败", {
+          description: result.publicUrl,
+        });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "存储连接测试失败");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const providerOption = getProviderOption(form.provider);
+  const isS3 = form.type === "s3";
+  const generatedEndpoint = buildEndpoint(form.provider, form.region);
+  const endpointIsAuto = isS3 && hasEndpointTemplate(form.provider) && !endpointManual;
+  const endpointStatus = isS3 && hasEndpointTemplate(form.provider)
+    ? endpointIsAuto
+      ? "访问端点会随地域自动更新"
+      : isTemplateEndpoint(form.provider, form.region, form.endpoint)
+        ? "当前访问端点与厂商模板一致"
+        : "正在使用自定义访问端点，地域不会覆盖它"
+    : "该厂商需要手动填写访问端点";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
+      <DialogContent className="sm:max-w-xl max-h-[calc(100vh-2rem)] flex flex-col overflow-hidden">
         <DialogHeader className="shrink-0">
           <DialogTitle>{editingConfig ? "编辑存储配置" : "新建存储配置"}</DialogTitle>
           <DialogDescription>
@@ -155,7 +315,7 @@ function StorageConfigDialog({ open, onOpenChange, editingConfig, onSaved }: Sto
             <Label className="text-xs text-muted-foreground">存储类型</Label>
             <Select
               value={form.type || "local"}
-              onValueChange={v => updateField("type", v as string)}
+              onValueChange={v => updateType(v as string)}
               items={STORAGE_TYPE_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
             >
               <SelectTrigger className="w-full text-sm">
@@ -176,33 +336,221 @@ function StorageConfigDialog({ open, onOpenChange, editingConfig, onSaved }: Sto
             </Select>
           </div>
 
-          {/* 动态字段 */}
-          {fields.map(field => (
-            <div key={field.key} className="space-y-1.5">
+          {isS3 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">厂商</Label>
+              <Select
+                value={form.provider || "generic_s3"}
+                onValueChange={v => updateProvider(v as string)}
+                items={STORAGE_PROVIDER_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+              >
+                <SelectTrigger className="w-full text-sm">
+                  <SelectValue placeholder="选择厂商" />
+                </SelectTrigger>
+                <SelectContent className="text-sm">
+                  <SelectGroup>
+                    {STORAGE_PROVIDER_OPTIONS.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value} className="text-sm">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <Cloud className="h-3.5 w-3.5 text-muted-foreground" />
+                            {opt.label}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">{opt.description}</div>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {!isS3 ? (
+            <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">
-                {field.label}
-                {field.required && <span className="text-destructive ml-0.5">*</span>}
+                存储路径<span className="text-destructive ml-0.5">*</span>
               </Label>
-              <div className="relative">
-                <Input
-                  type={field.type === "password" && !showSecrets[field.key] ? "password" : "text"}
-                  placeholder={field.placeholder}
-                  value={(form as unknown as Record<string, string>)[field.key] || ""}
-                  onChange={e => updateField(field.key as keyof StorageConfigSaveReq, e.target.value)}
-                  className="text-sm pr-9"
-                />
-                {field.type === "password" && (
-                  <button
-                    type="button"
-                    onClick={() => setShowSecrets(prev => ({ ...prev, [field.key]: !prev[field.key] }))}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showSecrets[field.key] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
+              <Input
+                placeholder="./data/media"
+                value={form.basePath || ""}
+                onChange={e => updateField("basePath", e.target.value)}
+                className="text-sm"
+              />
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">地域 (Region)</Label>
+                  <Input
+                    placeholder={providerOption.defaultRegion || "cn-hangzhou / ap-shanghai"}
+                    value={form.region || ""}
+                    onChange={e => updateRegion(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    存储桶名称 (Bucket)<span className="text-destructive ml-0.5">*</span>
+                  </Label>
+                  <Input
+                    placeholder="my-bucket"
+                    value={form.bucketName || ""}
+                    onChange={e => updateField("bucketName", e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-3">
+                  <Label className="text-xs text-muted-foreground">
+                    访问端点 (Endpoint){providerOption.endpointRequired && <span className="text-destructive ml-0.5">*</span>}
+                  </Label>
+                  {hasEndpointTemplate(form.provider) && (
+                    <button
+                      type="button"
+                      onClick={() => setManualEndpoint(!endpointManual)}
+                      className="text-[11px] text-primary hover:text-primary/80 transition-colors"
+                    >
+                      {endpointManual ? "使用自动生成" : "自定义端点"}
+                    </button>
+                  )}
+                </div>
+                {endpointIsAuto ? (
+                  <div className={cn(
+                    "min-h-9 rounded-4xl border border-border/60 bg-muted/35 px-3 py-2",
+                    "font-mono text-xs text-muted-foreground break-all"
+                  )}>
+                    {generatedEndpoint || "填写地域后自动生成"}
+                  </div>
+                ) : (
+                  <Input
+                    placeholder={endpointPlaceholder(form.provider)}
+                    value={form.endpoint || ""}
+                    onChange={e => updateField("endpoint", e.target.value)}
+                    className="text-sm"
+                  />
+                )}
+                <p className="text-[11px] text-muted-foreground">{endpointStatus}</p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    访问密钥 ID (Access Key)<span className="text-destructive ml-0.5">*</span>
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      type={showSecrets.accessKey ? "text" : "password"}
+                      placeholder="请输入 Access Key ID"
+                      value={form.accessKey || ""}
+                      onChange={e => updateField("accessKey", e.target.value)}
+                      className="text-sm pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecrets(prev => ({ ...prev, accessKey: !prev.accessKey }))}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showSecrets.accessKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    访问密钥 Secret (Secret Key){!editingConfig && <span className="text-destructive ml-0.5">*</span>}
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      type={showSecrets.secretKey ? "text" : "password"}
+                      placeholder={editingConfig ? "留空则保留原值" : "请输入 Secret Access Key"}
+                      value={form.secretKey || ""}
+                      onChange={e => updateField("secretKey", e.target.value)}
+                      className="text-sm pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecrets(prev => ({ ...prev, secretKey: !prev.secretKey }))}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showSecrets.secretKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border/40 bg-muted/15">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(prev => !prev)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left"
+                >
+                  <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <Settings2 className="h-3.5 w-3.5" />
+                    更多设置
+                    <span className="hidden sm:inline text-[11px] font-normal text-muted-foreground/70">
+                      默认即可，兼容异常或自建 S3 时再修改
+                    </span>
+                  </span>
+                  <ChevronDown className={cn(
+                    "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                    showAdvanced && "rotate-180"
+                  )} />
+                </button>
+                {showAdvanced && (
+                  <div className="space-y-3 border-t border-border/40 p-3">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">对象路径前缀</Label>
+                        <Input
+                          placeholder="ai-fusion/（可选）"
+                          value={form.basePath || ""}
+                          onChange={e => updateField("basePath", e.target.value)}
+                          className="text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">公开域名/CDN</Label>
+                        <Input
+                          placeholder="https://cdn.example.com（可选）"
+                          value={form.customDomain || ""}
+                          onChange={e => updateField("customDomain", e.target.value)}
+                          className="text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="flex items-center justify-between gap-3 cursor-pointer select-none rounded-lg bg-muted/20 px-3 py-2">
+                        <span className="text-xs text-muted-foreground">路径样式访问 (Path-style Access)</span>
+                        <Checkbox
+                          checked={!!form.options?.pathStyleAccessEnabled}
+                          onCheckedChange={(checked) => updateOptionField("pathStyleAccessEnabled", !!checked)}
+                        />
+                      </label>
+                      <label className="flex items-center justify-between gap-3 cursor-pointer select-none rounded-lg bg-muted/20 px-3 py-2">
+                        <span className="text-xs text-muted-foreground">分块编码 (Chunked Encoding)</span>
+                        <Checkbox
+                          checked={!!form.options?.chunkedEncodingEnabled}
+                          onCheckedChange={(checked) => updateOptionField("chunkedEncodingEnabled", !!checked)}
+                        />
+                      </label>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">签名地域 (Signing Region)</Label>
+                      <Input
+                        placeholder={form.region || providerOption.defaultRegion || "us-east-1"}
+                        value={form.options?.signingRegion || ""}
+                        onChange={e => updateOptionField("signingRegion", e.target.value)}
+                        className="text-sm"
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
-          ))}
+            </>
+          )}
 
           {/* 备注 */}
           <div className="space-y-1.5">
@@ -216,14 +564,25 @@ function StorageConfigDialog({ open, onOpenChange, editingConfig, onSaved }: Sto
           </div>
         </div>
 
-        <DialogFooter className="shrink-0">
-          <DialogClose render={<Button variant="outline" size="sm" />}>
-            取消
-          </DialogClose>
-          <Button size="sm" onClick={handleSave} disabled={saving || !form.name.trim()}>
-            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
-            {editingConfig ? "保存" : "创建"}
+        <DialogFooter className="shrink-0 sm:justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleTest}
+            disabled={testing || saving || !form.name.trim()}
+          >
+            {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <TestTube2 className="h-3.5 w-3.5 mr-1.5" />}
+            测试连接
           </Button>
+          <div className="flex items-center justify-end gap-2">
+            <DialogClose render={<Button variant="outline" size="sm" />}>
+              取消
+            </DialogClose>
+            <Button size="sm" onClick={handleSave} disabled={saving || testing || !form.name.trim()}>
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />}
+              {editingConfig ? "保存" : "创建"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -240,10 +599,6 @@ export default function StoragePage() {
   const [storageDialogOpen, setStorageDialogOpen] = useState(false);
   const [editingStorageConfig, setEditingStorageConfig] = useState<StorageConfigType | null>(null);
 
-  useEffect(() => {
-    loadStorageConfigs();
-  }, []);
-
   const loadStorageConfigs = useCallback(async () => {
     try {
       setStorageLoading(true);
@@ -255,6 +610,10 @@ export default function StoragePage() {
       setStorageLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    loadStorageConfigs();
+  }, [loadStorageConfigs]);
 
   const handleDeleteStorageConfig = async (id: number) => {
     if (!confirm("确定要删除该存储配置吗？")) return;
@@ -325,7 +684,10 @@ export default function StoragePage() {
             </div>
           ) : (
             storageConfigs.map((sc) => {
-              const isLocal = sc.type === "local";
+              const isLocal = normalizeStorageType(sc) === "local";
+              const providerLabel = !isLocal
+                ? STORAGE_PROVIDER_LABELS[sc.provider || "generic_s3"] || sc.provider || "S3 兼容"
+                : STORAGE_TYPE_LABELS[sc.type] || sc.type;
               return (
                 <div
                   key={sc.id}
@@ -349,7 +711,7 @@ export default function StoragePage() {
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium">{sc.name}</p>
                         <span className="px-1.5 py-0.5 rounded bg-muted/50 text-[10px] text-muted-foreground">
-                          {STORAGE_TYPE_LABELS[sc.type] || sc.type}
+                          {providerLabel}
                         </span>
                         {sc.isDefault && (
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-primary/10 text-[10px] text-primary font-medium">

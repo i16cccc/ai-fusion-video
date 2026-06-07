@@ -2,6 +2,8 @@ package com.stonewu.fusion.controller.storage.vo;
 
 import lombok.Data;
 
+import java.util.Map;
+
 /**
  * 存储配置保存请求 VO
  */
@@ -14,8 +16,11 @@ public class StorageConfigSaveReqVO {
     /** 配置名称 */
     private String name;
 
-    /** 存储类型：local / aliyun_oss */
+    /** 存储类型：local / s3 */
     private String type;
+
+    /** S3 兼容厂商 */
+    private String provider;
 
     /** OSS 端点地址 */
     private String endpoint;
@@ -37,6 +42,9 @@ public class StorageConfigSaveReqVO {
 
     /** 自定义域名 */
     private String customDomain;
+
+    /** 厂商扩展配置 */
+    private Map<String, Object> options;
 
     /** 是否为默认存储配置 */
     private Boolean isDefault;

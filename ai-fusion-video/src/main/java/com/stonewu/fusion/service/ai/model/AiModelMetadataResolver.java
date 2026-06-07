@@ -116,6 +116,9 @@ public class AiModelMetadataResolver {
         if (containsAny(corpus, "sora")) {
             return "sora";
         }
+        if (containsAny(corpus, "agnes")) {
+            return "agnes";
+        }
         if (containsAny(corpus, "seedance", "豆包视频", "doubao-video")) {
             return "seedance";
         }

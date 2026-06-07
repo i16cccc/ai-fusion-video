@@ -7,6 +7,7 @@ import com.stonewu.fusion.common.BusinessException;
 import com.stonewu.fusion.common.PageResult;
 import com.stonewu.fusion.entity.storage.StorageConfig;
 import com.stonewu.fusion.mapper.storage.StorageConfigMapper;
+import cn.hutool.core.util.StrUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -25,6 +26,7 @@ import java.util.List;
 public class StorageConfigService {
 
     private final StorageConfigMapper storageConfigMapper;
+    private final S3ClientFactory s3ClientFactory;
 
     @Cacheable(value = "storageConfig", key = "#id")
     public StorageConfig getById(Long id) {
@@ -65,6 +67,7 @@ public class StorageConfigService {
     @CacheEvict(value = "storageConfig", allEntries = true)
     @Transactional
     public Long create(StorageConfig config) {
+        normalizeForSave(config);
         storageConfigMapper.insert(config);
         // 如果是默认配置，清除其他默认
         if (Boolean.TRUE.equals(config.getIsDefault())) {
@@ -76,7 +79,9 @@ public class StorageConfigService {
     @CacheEvict(value = "storageConfig", allEntries = true)
     @Transactional
     public void update(StorageConfig config) {
+        normalizeForSave(config);
         storageConfigMapper.updateById(config);
+        s3ClientFactory.invalidate(config.getId());
         // 如果设为默认，清除其他默认
         if (Boolean.TRUE.equals(config.getIsDefault())) {
             clearOtherDefaults(config.getId());
@@ -86,6 +91,7 @@ public class StorageConfigService {
     @CacheEvict(value = "storageConfig", allEntries = true)
     @Transactional
     public void delete(Long id) {
+        s3ClientFactory.invalidate(id);
         storageConfigMapper.deleteById(id);
     }
 
@@ -115,5 +121,22 @@ public class StorageConfigService {
                         .set(StorageConfig::getIsDefault, false)
                         .eq(StorageConfig::getIsDefault, true)
                         .ne(StorageConfig::getId, excludeId));
+    }
+
+    private void normalizeForSave(StorageConfig config) {
+        String originalType = config.getType();
+        String type = StorageTypes.normalizeType(originalType);
+        config.setType(type);
+
+        if (StorageTypes.S3.equals(type)) {
+            String legacyProvider = StorageTypes.legacyProvider(originalType);
+            if (StrUtil.isNotBlank(legacyProvider)) {
+                config.setProvider(legacyProvider);
+            } else if (StrUtil.isBlank(config.getProvider())) {
+                config.setProvider(StorageProviderRegistry.GENERIC_S3);
+            }
+        } else if (StorageTypes.LOCAL.equals(type)) {
+            config.setProvider(null);
+        }
     }
 }

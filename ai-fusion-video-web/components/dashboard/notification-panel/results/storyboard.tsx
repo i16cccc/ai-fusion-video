@@ -72,19 +72,25 @@ export function StoryboardResult({
     );
   }
 
+  const sceneName = obj.sceneName as string | undefined;
   const title = obj.title as string | undefined;
   const description = obj.description as string | undefined;
   const totalItems = obj.totalItems as number | undefined;
   const items = obj.items as Array<Record<string, unknown>> | undefined;
   const storyboardId = obj.storyboardId ?? obj.id;
+  const sceneId = obj.storyboardSceneId ?? obj.sceneId;
   const shotItems = Array.isArray(items) ? items : [];
+  const displayTitle = title || sceneName;
 
   return (
     <div className="space-y-1.5">
       <div className="space-y-0.5">
-        {title && <p className="text-xs font-medium text-foreground">{title}</p>}
+        {displayTitle && (
+          <p className="text-xs font-medium text-foreground">{displayTitle}</p>
+        )}
         <p className="text-[10px] text-muted-foreground/60">
           {storyboardId !== undefined && `ID: ${storyboardId}`}
+          {storyboardId === undefined && sceneId !== undefined && `场次 ID: ${sceneId}`}
           {totalItems !== undefined && ` · 共 ${totalItems} 个镜头`}
           {shotItems.length > 0 && ` · 预览 ${Math.min(shotItems.length, 3)} 项`}
         </p>
