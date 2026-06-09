@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { projectApi, type Project } from "@/lib/api/project";
 import { LayoutContext, useLayoutState } from "@/lib/hooks/use-layout";
 
+const GLOBAL_SIDEBAR_COLLAPSED_STORAGE_KEY = "fusion-dashboard-sidebar-collapsed";
+
 export default function DashboardLayout({
   children,
 }: {
@@ -33,6 +35,10 @@ export default function DashboardLayout({
     () => false
   );
   const [sidebarRoute, setSidebarRoute] = useState<string | null>(null);
+  const [isGlobalSidebarCollapsed, setIsGlobalSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(GLOBAL_SIDEBAR_COLLAPSED_STORAGE_KEY) === "true";
+  });
   const [projectState, setProjectState] = useState<{ id: number; project: Project } | null>(null);
   const sidebarOpen = sidebarRoute === pathname;
   const currentProjectId = useMemo(() => {
@@ -40,6 +46,14 @@ export default function DashboardLayout({
     return match ? Number(match[1]) : null;
   }, [pathname]);
   const currentProject = projectState?.id === currentProjectId ? projectState.project : null;
+
+  const handleSetGlobalSidebarCollapsed = (collapsed: boolean) => {
+    setIsGlobalSidebarCollapsed(collapsed);
+    localStorage.setItem(
+      GLOBAL_SIDEBAR_COLLAPSED_STORAGE_KEY,
+      collapsed ? "true" : "false"
+    );
+  };
 
   // 布局宽度控制：子页面通过 useFullWidth(condition) 驱动
   const { fullWidth, setFullWidth } = useLayoutState();
@@ -101,8 +115,19 @@ export default function DashboardLayout({
           {/* 桌面端：浮动侧边栏卡片 */}
           {/* lg(1024px): ~240px card | xl(1280px): ~270px card | 2xl+(1440px): 300px card */}
           {ready && (
-            <div className="hidden lg:block shrink-0 w-[clamp(272px,23vw,332px)] px-4 pt-1 self-start">
-              <SidebarNav project={currentProject} />
+            <div
+              className={cn(
+                "hidden lg:block shrink-0 pt-1 self-start transition-[width,padding] duration-200 ease-out",
+                isGlobalSidebarCollapsed
+                  ? "w-20 px-3"
+                  : "w-[clamp(272px,23vw,332px)] px-4"
+              )}
+            >
+              <SidebarNav
+                project={currentProject}
+                collapsed={isGlobalSidebarCollapsed}
+                onCollapsedChange={handleSetGlobalSidebarCollapsed}
+              />
             </div>
           )}
 

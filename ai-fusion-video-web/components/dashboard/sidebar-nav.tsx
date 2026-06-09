@@ -13,8 +13,9 @@ import {
   Settings,
   ArrowLeft,
   Bot,
-  Settings2,
   HardDrive,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -53,9 +54,25 @@ const assetItems: SidebarItem[] = [
   { key: "list", label: "全部资产", icon: Images, href: "/assets", iconColor: "text-orange-400" },
 ];
 
+interface SidebarNavProps {
+  /** 导航后回调，移动端抽屉用于关闭面板 */
+  onNavigate?: () => void;
+  /** 当前项目，未传入时组件会按路由自行加载 */
+  project?: Project | null;
+  /** 桌面端是否以图标栏形态收起 */
+  collapsed?: boolean;
+  /** 切换桌面端侧栏收起状态 */
+  onCollapsedChange?: (collapsed: boolean) => void;
+}
+
 // ========== 侧边栏组件 ==========
 
-export function SidebarNav({ onNavigate, project: projectProp }: { onNavigate?: () => void; project?: Project | null }) {
+export function SidebarNav({
+  onNavigate,
+  project: projectProp,
+  collapsed = false,
+  onCollapsedChange,
+}: SidebarNavProps) {
   const router = useRouter();
   const pathname = usePathname();
   const currentUser = useAuthStore((state) => state.user);
@@ -166,34 +183,74 @@ export function SidebarNav({ onNavigate, project: projectProp }: { onNavigate?: 
           transition={{ duration: 0.2, ease: "easeOut" }}
         >
           {/* 标题区 */}
-          <div className="px-3 pt-3 pb-3">
-            {backAction && (
-              <>
+          {collapsed ? (
+            <div className="px-1 pt-2 pb-3 flex flex-col items-center gap-2">
+              {onCollapsedChange && (
                 <button
-                  onClick={backAction}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2 group"
+                  type="button"
+                  onClick={() => onCollapsedChange(false)}
+                  className="h-10 w-10 rounded-xl flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors"
+                  title="展开菜单栏"
+                  aria-label="展开菜单栏"
                 >
-                  <ArrowLeft className="h-3.5 w-3.5 group-hover:-translate-x-0.5 transition-transform" />
-                  返回项目列表
+                  <PanelLeftOpen className="h-4 w-4" />
                 </button>
-                <div className="border-b border-border/30 -mx-3 mb-2" />
-              </>
-            )}
-            <h3 className="text-sm font-semibold truncate">
-              {projectId &&  (
-                "项目: "
-            )}
-              {sectionTitle}
-            </h3>
-            {projectId && project?.description && (
-              <p className="text-xs text-muted-foreground/60 mt-0.5 line-clamp-1">
-                {project.description}
-              </p>
-            )}
-          </div>
+              )}
+              {backAction && (
+                <button
+                  type="button"
+                  onClick={backAction}
+                  className="h-10 w-10 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors"
+                  title="返回项目列表"
+                  aria-label="返回项目列表"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="px-3 pt-3 pb-3">
+              {backAction && (
+                <>
+                  <button
+                    onClick={backAction}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2 group"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                    返回项目列表
+                  </button>
+                  <div className="border-b border-border/30 -mx-3 mb-2" />
+                </>
+              )}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold truncate">
+                    {projectId && "项目: "}
+                    {sectionTitle}
+                  </h3>
+                  {projectId && project?.description && (
+                    <p className="text-xs text-muted-foreground/60 mt-0.5 line-clamp-1">
+                      {project.description}
+                    </p>
+                  )}
+                </div>
+                {onCollapsedChange && (
+                  <button
+                    type="button"
+                    onClick={() => onCollapsedChange(true)}
+                    className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors shrink-0"
+                    title="收起菜单栏"
+                    aria-label="收起菜单栏"
+                  >
+                    <PanelLeftClose className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* 导航项 */}
-          <nav className="space-y-0.5 px-1">
+          <nav className={cn("space-y-0.5", collapsed ? "px-0" : "px-1")}>
             {items.map((item) => {
               const Icon = item.icon;
               const isActive = getIsActive(item.href);
@@ -202,27 +259,34 @@ export function SidebarNav({ onNavigate, project: projectProp }: { onNavigate?: 
                 <button
                   key={item.key}
                   onClick={() => handleNav(item.href)}
+                  title={item.label}
+                  aria-label={item.label}
                   className={cn(
-                    "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm",
+                    "w-full flex items-center rounded-xl text-sm",
                     "transition-all duration-150 relative",
+                    collapsed
+                      ? "h-10 justify-center px-0"
+                      : "gap-2.5 px-3 py-2",
                     isActive
                       ? "font-medium text-foreground bg-foreground/6"
                       : "text-muted-foreground hover:text-foreground hover:bg-foreground/3"
                   )}
                 >
                   {/* 选中指示条，颜色与菜单项图标一致 */}
-                  <span
-                    className={cn(
-                      "transition-colors duration-200",
-                      isActive ? item.iconColor : "text-transparent",
-                    )}
-                  >
-                    <div className="w-0.5 h-5 rounded-full bg-current" />
-                  </span>
+                  {!collapsed && (
+                    <span
+                      className={cn(
+                        "transition-colors duration-200",
+                        isActive ? item.iconColor : "text-transparent",
+                      )}
+                    >
+                      <div className="w-0.5 h-5 rounded-full bg-current" />
+                    </span>
+                  )}
                   <span className={cn("transition-colors", isActive ? item.iconColor : "")}>
                     <Icon className="h-[18px] w-[18px]" />
                   </span>
-                  <span>{item.label}</span>
+                  {!collapsed && <span>{item.label}</span>}
                 </button>
               );
             })}
