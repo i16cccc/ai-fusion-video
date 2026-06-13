@@ -89,8 +89,8 @@ function FramePromptDialog({
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={() => !submitting && onClose()}
       />
-      <div className="relative bg-card border border-border/30 rounded-xl shadow-2xl w-[520px] max-w-[92vw] max-h-[82vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border/20">
+      <div className="relative bg-card border border-border/30 rounded-xl shadow-2xl w-[520px] max-w-[92vw] max-h-[calc(100vh-2rem)] sm:max-h-[82vh] flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/20 shrink-0">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -112,15 +112,15 @@ function FramePromptDialog({
           </button>
         </div>
 
-        <div className="p-5">
+        <div className="p-5 min-h-0 overflow-hidden">
           <Textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            className="min-h-52 text-xs leading-relaxed resize-none"
+            className="h-[min(52vh,28rem)] min-h-40 max-h-full overflow-y-auto overscroll-contain text-xs leading-relaxed resize-none [field-sizing:fixed]"
           />
         </div>
 
-        <div className="px-5 py-3.5 border-t border-border/20 flex items-center justify-end gap-2">
+        <div className="px-5 py-3.5 border-t border-border/20 flex items-center justify-end gap-2 shrink-0">
           <button
             type="button"
             onClick={onClose}
