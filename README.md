@@ -41,11 +41,14 @@
     <tr>
       <td align="center" width="33%">
         <img src="https://image.stonewu.com/file/wechat-qrcode.png" alt="作者微信二维码" width="220" />
+        <p align="center">
+          <b style="color:red"> 添加好友请备注，否则不通过 </b>
+        </p>
       </td>
       <td align="center" width="33%">
         <img src="https://image.stonewu.com/file/ai-fusion-video-qrcode-group.png" alt="交流群二维码" width="220" />
         <p align="center">
-          <sub><b>1群人已满500，请加2群</b></sub>
+          <b>1群人已满500，请加2群</b>
         </p>
       </td>
       <td align="center" width="33%">
